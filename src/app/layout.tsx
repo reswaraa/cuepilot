@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Inter } from "next/font/google";
+import Script from "next/script";
 import { cn } from "@/lib/utils";
 
 const inter = Inter({
@@ -8,6 +9,8 @@ const inter = Inter({
   variable: "--font-sans",
   display: "swap",
 });
+
+const plausibleDomain = process.env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN;
 
 export const metadata: Metadata = {
   title: "cuepilot",
@@ -31,6 +34,14 @@ export default function RootLayout({
     <html lang="en" className={cn("dark font-sans", inter.variable)}>
       <body className="min-h-dvh bg-background text-foreground antialiased">
         {children}
+        {plausibleDomain && (
+          <Script
+            defer
+            data-domain={plausibleDomain}
+            src="https://plausible.io/js/script.js"
+            strategy="afterInteractive"
+          />
+        )}
       </body>
     </html>
   );
