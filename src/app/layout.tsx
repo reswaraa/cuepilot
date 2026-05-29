@@ -1,9 +1,13 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import { Geist } from "next/font/google";
+import { Inter } from "next/font/google";
 import { cn } from "@/lib/utils";
 
-const geist = Geist({subsets:['latin'],variable:'--font-sans'});
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-sans",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "cuepilot",
@@ -24,7 +28,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={cn("dark font-sans", geist.variable)}>
+    <html lang="en" className={cn("dark font-sans", inter.variable)}>
       <body className="min-h-dvh bg-background text-foreground antialiased">
         {children}
       </body>
