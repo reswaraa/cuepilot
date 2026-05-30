@@ -16,6 +16,11 @@ import {
   semanticMatch,
   type SemanticIndex,
 } from "@/lib/semantic-matcher";
+import {
+  getCachedWindowEmbeddings,
+  hashScript,
+  setCachedWindowEmbeddings,
+} from "@/lib/embedding-cache";
 
 const TRANSCRIPT_TAIL_WORDS = 15;
 const FUZZY_TRUST_THRESHOLD = 0.2; // above this, fuzzy alone is trusted
@@ -56,19 +61,28 @@ export default function Present() {
   }, [embedder]);
 
   // Build the semantic index once both the script and the model are ready.
+  // Cache hit → instant; cache miss → embed once, persist for next visit.
   useEffect(() => {
     if (!script) return;
     if (embedder.status !== "ready") return;
     if (semanticIndex) return;
     let cancelled = false;
-    setIndexing(true);
     (async () => {
       try {
+        const hash = await hashScript(script.raw);
+        const cached = await getCachedWindowEmbeddings(hash);
+        if (cached) {
+          if (!cancelled) setSemanticIndex({ windowEmbeddings: cached });
+          return;
+        }
+        if (!cancelled) setIndexing(true);
         const index = await buildSemanticIndex(
           script.sentences,
           embedder.embedBatch,
         );
-        if (!cancelled) setSemanticIndex(index);
+        if (cancelled) return;
+        setSemanticIndex(index);
+        void setCachedWindowEmbeddings(hash, index.windowEmbeddings);
       } catch {
         // fall back to fuzzy-only — non-fatal
       } finally {
