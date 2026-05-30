@@ -127,7 +127,12 @@ export function useDeepgramTranscription(options: Options = {}) {
       return;
     }
 
-    // 3. WebSocket → Deepgram, authenticated via the bearer subprotocol.
+    // 3. WebSocket → Deepgram, authenticated via the Sec-WebSocket-Protocol header.
+    // Browsers cannot set custom headers on WebSocket connections, so credentials
+    // are passed as ["token", apiKey] which the browser sends as:
+    //   Sec-WebSocket-Protocol: token, <apiKey>
+    // Deepgram's JWT tokens do NOT work here (they require Authorization: Bearer,
+    // which browsers can't set). Only raw API keys work via this mechanism.
     const params = new URLSearchParams({
       model: "nova-3",
       interim_results: "true",
