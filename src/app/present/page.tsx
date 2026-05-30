@@ -1,16 +1,29 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { loadScript, type StoredScript } from "@/lib/script-storage";
 import { useDeepgramTranscription } from "@/lib/use-deepgram-transcription";
+import {
+  matchTranscriptToSentences,
+  takeTranscriptTail,
+} from "@/lib/fuzzy-matcher";
+
+const TRANSCRIPT_TAIL_WORDS = 15;
+const MIN_MATCH_SCORE = 0.08;
 
 export default function Present() {
   const router = useRouter();
   const [script, setScript] = useState<StoredScript | null>(null);
   const [hydrated, setHydrated] = useState(false);
+  const [currentIndex, setCurrentIndex] = useState<number | null>(null);
+  const [matchScore, setMatchScore] = useState(0);
+
   const { status, transcript, error, start, stop } = useDeepgramTranscription();
+
+  const currentRef = useRef<HTMLParagraphElement | null>(null);
 
   useEffect(() => {
     const stored = loadScript();
@@ -21,6 +34,29 @@ export default function Present() {
     setScript(stored);
     setHydrated(true);
   }, [router]);
+
+  const transcriptTail = useMemo(() => {
+    const all = [...transcript.finals, transcript.interim]
+      .filter(Boolean)
+      .join(" ");
+    return takeTranscriptTail(all, TRANSCRIPT_TAIL_WORDS);
+  }, [transcript]);
+
+  useEffect(() => {
+    if (!script || !transcriptTail) return;
+    const result = matchTranscriptToSentences(script.sentences, transcriptTail);
+    if (result.score >= MIN_MATCH_SCORE) {
+      setCurrentIndex(result.index);
+      setMatchScore(result.score);
+    }
+  }, [script, transcriptTail]);
+
+  useEffect(() => {
+    if (currentIndex === null) return;
+    const node = currentRef.current;
+    if (!node) return;
+    node.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [currentIndex]);
 
   if (!hydrated || !script) return null;
 
@@ -34,7 +70,9 @@ export default function Present() {
       case "starting":
         return "Connecting…";
       case "listening":
-        return "Listening";
+        return currentIndex === null
+          ? "Listening — say something to begin."
+          : `Tracking · ${Math.round(matchScore * 100)}%`;
       case "stopping":
         return "Stopping…";
       case "error":
@@ -62,13 +100,14 @@ export default function Present() {
       <div className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3">
         <div className="flex items-center gap-2.5 text-sm">
           <span
-            className={
+            className={cn(
+              "h-2 w-2 rounded-full",
               isListening
-                ? "h-2 w-2 animate-pulse rounded-full bg-primary"
+                ? "animate-pulse bg-primary"
                 : status === "error"
-                  ? "h-2 w-2 rounded-full bg-destructive"
-                  : "h-2 w-2 rounded-full bg-muted-foreground/40"
-            }
+                  ? "bg-destructive"
+                  : "bg-muted-foreground/40",
+            )}
             aria-hidden
           />
           <span
@@ -89,15 +128,27 @@ export default function Present() {
         </Button>
       </div>
 
-      <article className="flex flex-col gap-6">
-        {script.sentences.map((sentence, i) => (
-          <p
-            key={i}
-            className="text-2xl leading-relaxed text-muted-foreground"
-          >
-            {sentence}
-          </p>
-        ))}
+      <article className="flex flex-col gap-5">
+        {script.sentences.map((sentence, i) => {
+          const isCurrent = i === currentIndex;
+          const isPast = currentIndex !== null && i < currentIndex;
+          return (
+            <p
+              key={i}
+              ref={isCurrent ? currentRef : null}
+              className={cn(
+                "scroll-mt-32 border-l-2 pl-4 -ml-4 text-2xl leading-relaxed transition-colors duration-300",
+                isCurrent
+                  ? "border-primary text-foreground"
+                  : isPast
+                    ? "border-transparent text-muted-foreground/35"
+                    : "border-transparent text-muted-foreground",
+              )}
+            >
+              {sentence}
+            </p>
+          );
+        })}
       </article>
 
       {(transcript.finals.length > 0 || transcript.interim) && (
