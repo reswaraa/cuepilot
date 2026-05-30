@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const [password, setPassword] = useState("");
@@ -31,6 +31,26 @@ export default function LoginPage() {
   };
 
   return (
+    <form onSubmit={handleSubmit} className="flex w-full flex-col gap-3">
+      <input
+        type="password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        placeholder="Password"
+        autoFocus
+        required
+        className="rounded-lg border border-border bg-card px-4 py-2.5 text-base outline-none placeholder:text-muted-foreground/60 focus:ring-2 focus:ring-ring"
+      />
+      {error && <p className="text-sm text-destructive">{error}</p>}
+      <Button type="submit" disabled={pending || !password} className="w-full">
+        {pending ? "Checking…" : "Continue"}
+      </Button>
+    </form>
+  );
+}
+
+export default function LoginPage() {
+  return (
     <main className="mx-auto flex min-h-dvh max-w-sm flex-col items-center justify-center gap-8 px-6">
       <header className="flex flex-col items-center gap-1.5 text-center">
         <h1 className="text-2xl font-medium tracking-tight">
@@ -41,21 +61,9 @@ export default function LoginPage() {
         </p>
       </header>
 
-      <form onSubmit={handleSubmit} className="flex w-full flex-col gap-3">
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Password"
-          autoFocus
-          required
-          className="rounded-lg border border-border bg-card px-4 py-2.5 text-base outline-none placeholder:text-muted-foreground/60 focus:ring-2 focus:ring-ring"
-        />
-        {error && <p className="text-sm text-destructive">{error}</p>}
-        <Button type="submit" disabled={pending || !password} className="w-full">
-          {pending ? "Checking…" : "Continue"}
-        </Button>
-      </form>
+      <Suspense fallback={null}>
+        <LoginForm />
+      </Suspense>
     </main>
   );
 }
