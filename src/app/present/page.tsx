@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { loadScript, type StoredScript } from "@/lib/script-storage";
 import { useDeepgramTranscription } from "@/lib/use-deepgram-transcription";
+import { useEmbedder } from "@/lib/use-embedder";
 import {
   matchTranscriptToSentences,
   takeTranscriptTail,
@@ -22,8 +23,13 @@ export default function Present() {
   const [matchScore, setMatchScore] = useState(0);
 
   const { status, transcript, error, start, stop } = useDeepgramTranscription();
+  const embedder = useEmbedder();
 
   const currentRef = useRef<HTMLParagraphElement | null>(null);
+
+  useEffect(() => {
+    embedder.preload();
+  }, [embedder]);
 
   useEffect(() => {
     const stored = loadScript();
@@ -97,35 +103,50 @@ export default function Present() {
         </button>
       </header>
 
-      <div className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3">
-        <div className="flex items-center gap-2.5 text-sm">
-          <span
-            className={cn(
-              "h-2 w-2 rounded-full",
-              isListening
-                ? "animate-pulse bg-primary"
-                : status === "error"
-                  ? "bg-destructive"
-                  : "bg-muted-foreground/40",
-            )}
-            aria-hidden
-          />
-          <span
-            className={
-              status === "error" ? "text-destructive" : "text-muted-foreground"
-            }
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3">
+          <div className="flex items-center gap-2.5 text-sm">
+            <span
+              className={cn(
+                "h-2 w-2 rounded-full",
+                isListening
+                  ? "animate-pulse bg-primary"
+                  : status === "error"
+                    ? "bg-destructive"
+                    : "bg-muted-foreground/40",
+              )}
+              aria-hidden
+            />
+            <span
+              className={
+                status === "error"
+                  ? "text-destructive"
+                  : "text-muted-foreground"
+              }
+            >
+              {statusLabel}
+            </span>
+          </div>
+          <Button
+            onClick={isListening ? stop : start}
+            disabled={isBusy}
+            variant={isListening ? "secondary" : "default"}
+            size="sm"
           >
-            {statusLabel}
-          </span>
+            {isListening ? "Stop" : "Start"}
+          </Button>
         </div>
-        <Button
-          onClick={isListening ? stop : start}
-          disabled={isBusy}
-          variant={isListening ? "secondary" : "default"}
-          size="sm"
-        >
-          {isListening ? "Stop" : "Start"}
-        </Button>
+        {embedder.status !== "ready" && (
+          <div className="px-1 text-[11px] text-muted-foreground/70">
+            {embedder.status === "loading"
+              ? embedder.progress != null
+                ? `Semantic engine · loading ${Math.round(embedder.progress)}%`
+                : "Semantic engine · loading…"
+              : embedder.status === "error"
+                ? "Semantic engine unavailable — falling back to keyword match."
+                : "Semantic engine · preparing…"}
+          </div>
+        )}
       </div>
 
       <article className="flex flex-col gap-5">
