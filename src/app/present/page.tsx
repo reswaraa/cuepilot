@@ -11,9 +11,18 @@ import {
   matchTranscriptToSentences,
   takeTranscriptTail,
 } from "@/lib/fuzzy-matcher";
+import {
+  buildSemanticIndex,
+  semanticMatch,
+  type SemanticIndex,
+} from "@/lib/semantic-matcher";
 
 const TRANSCRIPT_TAIL_WORDS = 15;
-const MIN_MATCH_SCORE = 0.08;
+const FUZZY_TRUST_THRESHOLD = 0.2; // above this, fuzzy alone is trusted
+const MIN_FUZZY_COMMIT = 0.08;
+const MIN_SEMANTIC_COMMIT = 0.4;
+
+type MatchPath = "fuzzy" | "semantic";
 
 export default function Present() {
   const router = useRouter();
@@ -21,15 +30,16 @@ export default function Present() {
   const [hydrated, setHydrated] = useState(false);
   const [currentIndex, setCurrentIndex] = useState<number | null>(null);
   const [matchScore, setMatchScore] = useState(0);
+  const [matchPath, setMatchPath] = useState<MatchPath | null>(null);
+  const [semanticIndex, setSemanticIndex] = useState<SemanticIndex | null>(
+    null,
+  );
+  const [indexing, setIndexing] = useState(false);
 
   const { status, transcript, error, start, stop } = useDeepgramTranscription();
   const embedder = useEmbedder();
 
   const currentRef = useRef<HTMLParagraphElement | null>(null);
-
-  useEffect(() => {
-    embedder.preload();
-  }, [embedder]);
 
   useEffect(() => {
     const stored = loadScript();
@@ -41,6 +51,35 @@ export default function Present() {
     setHydrated(true);
   }, [router]);
 
+  useEffect(() => {
+    embedder.preload();
+  }, [embedder]);
+
+  // Build the semantic index once both the script and the model are ready.
+  useEffect(() => {
+    if (!script) return;
+    if (embedder.status !== "ready") return;
+    if (semanticIndex) return;
+    let cancelled = false;
+    setIndexing(true);
+    (async () => {
+      try {
+        const index = await buildSemanticIndex(
+          script.sentences,
+          embedder.embedBatch,
+        );
+        if (!cancelled) setSemanticIndex(index);
+      } catch {
+        // fall back to fuzzy-only — non-fatal
+      } finally {
+        if (!cancelled) setIndexing(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [script, embedder, semanticIndex]);
+
   const transcriptTail = useMemo(() => {
     const all = [...transcript.finals, transcript.interim]
       .filter(Boolean)
@@ -48,14 +87,56 @@ export default function Present() {
     return takeTranscriptTail(all, TRANSCRIPT_TAIL_WORDS);
   }, [transcript]);
 
+  // Hybrid match: fuzzy first; semantic fallback when fuzzy is unsure.
   useEffect(() => {
     if (!script || !transcriptTail) return;
-    const result = matchTranscriptToSentences(script.sentences, transcriptTail);
-    if (result.score >= MIN_MATCH_SCORE) {
-      setCurrentIndex(result.index);
-      setMatchScore(result.score);
-    }
-  }, [script, transcriptTail]);
+    let cancelled = false;
+
+    const commit = (idx: number, score: number, path: MatchPath) => {
+      if (cancelled) return;
+      setCurrentIndex(idx);
+      setMatchScore(score);
+      setMatchPath(path);
+    };
+
+    (async () => {
+      const fuzzy = matchTranscriptToSentences(
+        script.sentences,
+        transcriptTail,
+      );
+
+      const fuzzyOk = fuzzy.score >= MIN_FUZZY_COMMIT;
+      const trustFuzzy = fuzzy.score >= FUZZY_TRUST_THRESHOLD;
+      const canSemantic = semanticIndex && embedder.status === "ready";
+
+      if (trustFuzzy || !canSemantic) {
+        if (fuzzyOk) commit(fuzzy.index, fuzzy.score, "fuzzy");
+        return;
+      }
+
+      try {
+        const tailEmbedding = await embedder.embed(transcriptTail);
+        if (cancelled) return;
+        const sem = semanticMatch(semanticIndex!, tailEmbedding);
+
+        const semanticBetter =
+          sem.score >= MIN_SEMANTIC_COMMIT &&
+          (!fuzzyOk || sem.score >= fuzzy.score + 0.05);
+
+        if (semanticBetter) {
+          commit(sem.index, sem.score, "semantic");
+        } else if (fuzzyOk) {
+          commit(fuzzy.index, fuzzy.score, "fuzzy");
+        }
+      } catch {
+        if (fuzzyOk) commit(fuzzy.index, fuzzy.score, "fuzzy");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [script, transcriptTail, semanticIndex, embedder]);
 
   useEffect(() => {
     if (currentIndex === null) return;
@@ -78,12 +159,30 @@ export default function Present() {
       case "listening":
         return currentIndex === null
           ? "Listening — say something to begin."
-          : `Tracking · ${Math.round(matchScore * 100)}%`;
+          : `Tracking · ${Math.round(matchScore * 100)}%${
+              matchPath ? ` · ${matchPath}` : ""
+            }`;
       case "stopping":
         return "Stopping…";
       case "error":
         return error ?? "Something went wrong.";
     }
+  })();
+
+  const engineCaption = (() => {
+    if (embedder.status === "error") {
+      return "Semantic engine unavailable — falling back to keyword match.";
+    }
+    if (embedder.status === "loading") {
+      return embedder.progress != null
+        ? `Semantic engine · loading ${Math.round(embedder.progress)}%`
+        : "Semantic engine · loading…";
+    }
+    if (indexing) return "Indexing script…";
+    if (embedder.status === "ready" && !semanticIndex) {
+      return "Semantic engine · preparing…";
+    }
+    return null;
   })();
 
   return (
@@ -136,15 +235,9 @@ export default function Present() {
             {isListening ? "Stop" : "Start"}
           </Button>
         </div>
-        {embedder.status !== "ready" && (
+        {engineCaption && (
           <div className="px-1 text-[11px] text-muted-foreground/70">
-            {embedder.status === "loading"
-              ? embedder.progress != null
-                ? `Semantic engine · loading ${Math.round(embedder.progress)}%`
-                : "Semantic engine · loading…"
-              : embedder.status === "error"
-                ? "Semantic engine unavailable — falling back to keyword match."
-                : "Semantic engine · preparing…"}
+            {engineCaption}
           </div>
         )}
       </div>
