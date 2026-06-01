@@ -21,11 +21,10 @@ import {
   hashScript,
   setCachedWindowEmbeddings,
 } from "@/lib/embedding-cache";
+import { usePositionTracker } from "@/lib/position-tracker";
 
 const TRANSCRIPT_TAIL_WORDS = 15;
-const FUZZY_TRUST_THRESHOLD = 0.2; // above this, fuzzy alone is trusted
-const MIN_FUZZY_COMMIT = 0.08;
-const MIN_SEMANTIC_COMMIT = 0.4;
+const FUZZY_TRUST_THRESHOLD = 0.2;
 
 type MatchPath = "fuzzy" | "semantic";
 
@@ -33,8 +32,6 @@ export default function Present() {
   const router = useRouter();
   const [script, setScript] = useState<StoredScript | null>(null);
   const [hydrated, setHydrated] = useState(false);
-  const [currentIndex, setCurrentIndex] = useState<number | null>(null);
-  const [matchScore, setMatchScore] = useState(0);
   const [matchPath, setMatchPath] = useState<MatchPath | null>(null);
   const [semanticIndex, setSemanticIndex] = useState<SemanticIndex | null>(
     null,
@@ -42,7 +39,20 @@ export default function Present() {
   const [indexing, setIndexing] = useState(false);
 
   const { status, transcript, error, start, stop } = useDeepgramTranscription();
-  const embedder = useEmbedder();
+  const {
+    status: embedderStatus,
+    progress: embedderProgress,
+    preload: embedderPreload,
+    embed: embedderEmbed,
+    embedBatch: embedderEmbedBatch,
+  } = useEmbedder();
+  const {
+    position: trackerPosition,
+    confidence: trackerConfidence,
+    isLocked: trackerLocked,
+    observe: trackerObserve,
+    reset: trackerReset,
+  } = usePositionTracker();
 
   const currentRef = useRef<HTMLParagraphElement | null>(null);
 
@@ -57,14 +67,22 @@ export default function Present() {
   }, [router]);
 
   useEffect(() => {
-    embedder.preload();
-  }, [embedder]);
+    embedderPreload();
+  }, [embedderPreload]);
+
+  // Reset the tracker each time a new session starts.
+  useEffect(() => {
+    if (status === "starting") {
+      trackerReset();
+      setMatchPath(null);
+    }
+  }, [status, trackerReset]);
 
   // Build the semantic index once both the script and the model are ready.
   // Cache hit → instant; cache miss → embed once, persist for next visit.
   useEffect(() => {
     if (!script) return;
-    if (embedder.status !== "ready") return;
+    if (embedderStatus !== "ready") return;
     if (semanticIndex) return;
     let cancelled = false;
     (async () => {
@@ -78,7 +96,7 @@ export default function Present() {
         if (!cancelled) setIndexing(true);
         const index = await buildSemanticIndex(
           script.sentences,
-          embedder.embedBatch,
+          embedderEmbedBatch,
         );
         if (cancelled) return;
         setSemanticIndex(index);
@@ -92,7 +110,7 @@ export default function Present() {
     return () => {
       cancelled = true;
     };
-  }, [script, embedder, semanticIndex]);
+  }, [script, embedderStatus, embedderEmbedBatch, semanticIndex]);
 
   const transcriptTail = useMemo(() => {
     const all = [...transcript.finals, transcript.interim]
@@ -101,63 +119,66 @@ export default function Present() {
     return takeTranscriptTail(all, TRANSCRIPT_TAIL_WORDS);
   }, [transcript]);
 
-  // Hybrid match: fuzzy first; semantic fallback when fuzzy is unsure.
+  // Hybrid match → feed the tracker. Tracker absorbs the commit/floor logic
+  // that used to live in this effect.
   useEffect(() => {
     if (!script || !transcriptTail) return;
     let cancelled = false;
-
-    const commit = (idx: number, score: number, path: MatchPath) => {
-      if (cancelled) return;
-      setCurrentIndex(idx);
-      setMatchScore(score);
-      setMatchPath(path);
-    };
 
     (async () => {
       const fuzzy = matchTranscriptToSentences(
         script.sentences,
         transcriptTail,
       );
-
-      const fuzzyOk = fuzzy.score >= MIN_FUZZY_COMMIT;
       const trustFuzzy = fuzzy.score >= FUZZY_TRUST_THRESHOLD;
-      const canSemantic = semanticIndex && embedder.status === "ready";
+      const canSemantic = semanticIndex && embedderStatus === "ready";
 
       if (trustFuzzy || !canSemantic) {
-        if (fuzzyOk) commit(fuzzy.index, fuzzy.score, "fuzzy");
+        if (cancelled) return;
+        trackerObserve({ scores: fuzzy.scores });
+        setMatchPath("fuzzy");
         return;
       }
 
       try {
-        const tailEmbedding = await embedder.embed(transcriptTail);
+        const tailEmbedding = await embedderEmbed(transcriptTail);
         if (cancelled) return;
         const sem = semanticMatch(semanticIndex!, tailEmbedding);
-
-        const semanticBetter =
-          sem.score >= MIN_SEMANTIC_COMMIT &&
-          (!fuzzyOk || sem.score >= fuzzy.score + 0.05);
-
-        if (semanticBetter) {
-          commit(sem.index, sem.score, "semantic");
-        } else if (fuzzyOk) {
-          commit(fuzzy.index, fuzzy.score, "fuzzy");
+        // Pick the higher-scoring path's scores for the tracker.
+        if (sem.score > fuzzy.score) {
+          trackerObserve({ scores: sem.scores });
+          setMatchPath("semantic");
+        } else {
+          trackerObserve({ scores: fuzzy.scores });
+          setMatchPath("fuzzy");
         }
       } catch {
-        if (fuzzyOk) commit(fuzzy.index, fuzzy.score, "fuzzy");
+        if (cancelled) return;
+        trackerObserve({ scores: fuzzy.scores });
+        setMatchPath("fuzzy");
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [script, transcriptTail, semanticIndex, embedder]);
+  }, [
+    script,
+    transcriptTail,
+    semanticIndex,
+    embedderStatus,
+    embedderEmbed,
+    trackerObserve,
+  ]);
 
+  // Auto-scroll on position change — only while not locked by low confidence.
   useEffect(() => {
-    if (currentIndex === null) return;
+    if (trackerPosition === null) return;
+    if (trackerLocked) return;
     const node = currentRef.current;
     if (!node) return;
     node.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, [currentIndex]);
+  }, [trackerPosition, trackerLocked]);
 
   if (!hydrated || !script) return null;
 
@@ -171,9 +192,12 @@ export default function Present() {
       case "starting":
         return "Connecting…";
       case "listening":
-        return currentIndex === null
-          ? "Listening — say something to begin."
-          : `Tracking · ${Math.round(matchScore * 100)}%${
+        if (trackerPosition === null) {
+          return "Listening — say something to begin.";
+        }
+        return trackerLocked
+          ? `Re-aligning · ${Math.round(trackerConfidence * 100)}%`
+          : `Tracking · ${Math.round(trackerConfidence * 100)}%${
               matchPath ? ` · ${matchPath}` : ""
             }`;
       case "stopping":
@@ -184,20 +208,22 @@ export default function Present() {
   })();
 
   const engineCaption = (() => {
-    if (embedder.status === "error") {
+    if (embedderStatus === "error") {
       return "Semantic engine unavailable — falling back to keyword match.";
     }
-    if (embedder.status === "loading") {
-      return embedder.progress != null
-        ? `Semantic engine · loading ${Math.round(embedder.progress)}%`
+    if (embedderStatus === "loading") {
+      return embedderProgress != null
+        ? `Semantic engine · loading ${Math.round(embedderProgress)}%`
         : "Semantic engine · loading…";
     }
     if (indexing) return "Indexing script…";
-    if (embedder.status === "ready" && !semanticIndex) {
+    if (embedderStatus === "ready" && !semanticIndex) {
       return "Semantic engine · preparing…";
     }
     return null;
   })();
+
+  const currentIndex = trackerPosition;
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-2xl flex-col gap-8 px-6 py-10">
@@ -223,7 +249,9 @@ export default function Present() {
               className={cn(
                 "h-2 w-2 rounded-full",
                 isListening
-                  ? "animate-pulse bg-primary"
+                  ? trackerLocked
+                    ? "animate-pulse bg-muted-foreground/60"
+                    : "animate-pulse bg-primary"
                   : status === "error"
                     ? "bg-destructive"
                     : "bg-muted-foreground/40",
@@ -267,7 +295,9 @@ export default function Present() {
               className={cn(
                 "scroll-mt-32 border-l-2 pl-4 -ml-4 text-2xl leading-relaxed transition-colors duration-300",
                 isCurrent
-                  ? "border-primary text-foreground"
+                  ? trackerLocked
+                    ? "border-muted-foreground/40 text-foreground/70"
+                    : "border-primary text-foreground"
                   : isPast
                     ? "border-transparent text-muted-foreground/35"
                     : "border-transparent text-muted-foreground",
