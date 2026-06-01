@@ -27,6 +27,7 @@ import {
   scrollSentenceIntoAnchor,
   sentenceOpacity,
 } from "@/lib/teleprompter-view";
+import { trackEvent } from "@/lib/analytics";
 
 const TRANSCRIPT_TAIL_WORDS = 15;
 const FUZZY_TRUST_THRESHOLD = 0.2;
@@ -85,6 +86,11 @@ export default function Present() {
 
   const [pulseIndex, setPulseIndex] = useState<number | null>(null);
   const pulseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Tracks whether the analytics "session_started" event already fired
+  // for the current Start→Stop cycle. Auto-reconnects flip status back
+  // to listening and shouldn't double-count.
+  const sessionTrackedRef = useRef(false);
 
   // Auto-hiding chrome: visible by default; while listening, hides after
   // 3s of no interaction. Any tap/keystroke re-reveals and resets the timer.
@@ -148,8 +154,21 @@ export default function Present() {
   const handleStart = () => {
     trackerReset();
     setMatchPath(null);
+    sessionTrackedRef.current = false;
     start();
   };
+
+  // Fire the Plausible "session_started" event the first time the WS
+  // actually reaches listening for a given Start→Stop cycle.
+  useEffect(() => {
+    if (status === "listening" && !sessionTrackedRef.current) {
+      sessionTrackedRef.current = true;
+      trackEvent("session_started");
+    }
+    if (status === "idle" || status === "error") {
+      sessionTrackedRef.current = false;
+    }
+  }, [status]);
 
   // Build the semantic index once both the script and the model are ready.
   // Cache hit → instant; cache miss → embed once, persist for next visit.

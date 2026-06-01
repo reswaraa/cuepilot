@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import * as Sentry from "@sentry/nextjs";
 
 export type EmbedderStatus =
   | "idle"
@@ -31,6 +32,17 @@ function getWorker(): Worker {
     { type: "module" },
   );
 
+  // Forward uncaught worker exceptions to Sentry so we can see them.
+  // Errors thrown inside our own try/catch land on the .error message
+  // path below.
+  w.onerror = (event) => {
+    Sentry.captureException(
+      new Error(
+        `Embedder worker uncaught: ${event.message ?? "unknown error"}`,
+      ),
+    );
+  };
+
   w.onmessage = (event: MessageEvent) => {
     const data = event.data as
       | { type: "progress"; progress: EmbedderProgress }
@@ -45,7 +57,9 @@ function getWorker(): Worker {
     if (!handler) return;
     pending.delete(data.id);
     if (data.error) {
-      handler.reject(new Error(data.error));
+      const err = new Error(`Embedder: ${data.error}`);
+      Sentry.captureException(err);
+      handler.reject(err);
     } else {
       handler.resolve(data);
     }
