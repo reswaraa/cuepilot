@@ -66,9 +66,29 @@ export default function Present() {
     isLocked: trackerLocked,
     observe: trackerObserve,
     reset: trackerReset,
+    setPosition: trackerSetPosition,
   } = usePositionTracker(debugConfig.options);
 
+  const [pulseIndex, setPulseIndex] = useState<number | null>(null);
+  const pulseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const currentRef = useRef<HTMLParagraphElement | null>(null);
+
+  const anchorToSentence = (idx: number) => {
+    trackerSetPosition(idx);
+    setPulseIndex(idx);
+    if (pulseTimeoutRef.current) clearTimeout(pulseTimeoutRef.current);
+    pulseTimeoutRef.current = setTimeout(() => {
+      setPulseIndex((curr) => (curr === idx ? null : curr));
+      pulseTimeoutRef.current = null;
+    }, 700);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (pulseTimeoutRef.current) clearTimeout(pulseTimeoutRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     const stored = loadScript();
@@ -312,18 +332,30 @@ export default function Present() {
             currentIndex === null
               ? 1
               : sentenceOpacity(distance, isPast, trackerLocked);
+          const isPulsing = pulseIndex === i;
           return (
             <p
               key={i}
               ref={isCurrent ? currentRef : null}
               style={{ opacity }}
+              onClick={() => anchorToSentence(i)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  anchorToSentence(i);
+                }
+              }}
+              role="button"
+              tabIndex={0}
+              aria-label={`Anchor at sentence ${i + 1}`}
               className={cn(
-                "border-l-2 pl-4 -ml-4 text-2xl leading-relaxed text-foreground transition-[opacity,color,border-color] duration-300 ease-out motion-reduce:transition-none",
+                "-ml-4 cursor-pointer rounded-r-md border-l-2 pl-4 text-2xl leading-relaxed text-foreground transition-[opacity,color,border-color] duration-300 ease-out outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
                 isCurrent
                   ? trackerLocked
                     ? "border-muted-foreground/40"
                     : "border-primary"
                   : "border-transparent",
+                isPulsing && "cp-anchor-pulse",
               )}
             >
               {sentence}

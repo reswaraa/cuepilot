@@ -204,5 +204,25 @@ export function usePositionTracker(
     setState(INITIAL_TRACKER_STATE);
   }, []);
 
-  return { ...state, observe, reset };
+  /**
+   * Manually commit a position. Used by tap-to-anchor: the user is
+   * telling us "I'm here, follow from this point." We reset history so
+   * the Gaussian prior recenters at the new spot, and release any
+   * confidence-driven lock — the user's gesture is implicit authorization
+   * to resume auto-scroll.
+   */
+  const setPosition = useCallback((position: number) => {
+    internalRef.current.smoothed = position;
+    internalRef.current.history = [];
+    internalRef.current.isLocked = false;
+    const next: TrackerState = {
+      ...stateRef.current,
+      position,
+      isLocked: false,
+    };
+    stateRef.current = next;
+    setState(next);
+  }, []);
+
+  return { ...state, observe, reset, setPosition };
 }

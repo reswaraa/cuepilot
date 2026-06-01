@@ -129,3 +129,22 @@
     @apply font-sans;
   }
 }
+
+@keyframes cp-anchor-pulse {
+  0% {
+    background-color: color-mix(in oklch, var(--primary) 22%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.cp-anchor-pulse {
+  animation: cp-anchor-pulse 700ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cp-anchor-pulse {
+    animation: none;
+  }
+}
