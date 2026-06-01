@@ -143,6 +143,11 @@
   animation: cp-anchor-pulse 700ms ease-out;
 }
 
+.cp-autosize {
+  field-sizing: content;
+  min-height: calc(1lh + 0.5rem);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cp-anchor-pulse {
     animation: none;
