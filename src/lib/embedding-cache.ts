@@ -1,24 +1,4 @@
-const DB_NAME = "cuepilot";
-const DB_VERSION = 1;
-const STORE = "embeddings";
-
-function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    if (typeof indexedDB === "undefined") {
-      reject(new Error("IndexedDB unavailable."));
-      return;
-    }
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE)) {
-        db.createObjectStore(STORE);
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
+import { openCuepilotDb, STORES } from "./db";
 
 export async function hashScript(text: string): Promise<string> {
   if (typeof crypto === "undefined" || !crypto.subtle) {
@@ -40,10 +20,10 @@ export async function getCachedWindowEmbeddings(
   key: string,
 ): Promise<number[][] | null> {
   try {
-    const db = await openDb();
+    const db = await openCuepilotDb();
     return await new Promise<number[][] | null>((resolve, reject) => {
-      const tx = db.transaction(STORE, "readonly");
-      const req = tx.objectStore(STORE).get(key);
+      const tx = db.transaction(STORES.embeddings, "readonly");
+      const req = tx.objectStore(STORES.embeddings).get(key);
       req.onsuccess = () => {
         const value = req.result;
         if (!value || !Array.isArray(value)) return resolve(null);
@@ -68,11 +48,11 @@ export async function setCachedWindowEmbeddings(
   embeddings: number[][],
 ): Promise<void> {
   try {
-    const db = await openDb();
+    const db = await openCuepilotDb();
     const compressed = embeddings.map((row) => Float32Array.from(row));
     await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(STORE, "readwrite");
-      const req = tx.objectStore(STORE).put(compressed, key);
+      const tx = db.transaction(STORES.embeddings, "readwrite");
+      const req = tx.objectStore(STORES.embeddings).put(compressed, key);
       req.onsuccess = () => resolve();
       req.onerror = () => reject(req.error);
     });

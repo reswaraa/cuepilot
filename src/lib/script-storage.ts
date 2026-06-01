@@ -3,6 +3,12 @@ const KEY = "cuepilot.script";
 export type StoredScript = {
   raw: string;
   sentences: string[];
+  /**
+   * IndexedDB record id when this session originated from a saved
+   * script. Optional — anonymous one-shot pastes have no id.
+   */
+  id?: string;
+  title?: string;
 };
 
 export function saveScript(script: StoredScript): void {
