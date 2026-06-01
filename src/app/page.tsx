@@ -18,6 +18,7 @@ import {
   type SavedScript,
 } from "@/lib/script-library";
 import { timeAgo } from "@/lib/time-ago";
+import { getSkipPreflight } from "@/lib/preflight-prefs";
 
 export default function Home() {
   const router = useRouter();
@@ -120,7 +121,7 @@ export default function Home() {
       // IndexedDB unavailable — still ship the session via sessionStorage
       saveScript({ raw, sentences: trimmedSentences });
     }
-    router.push("/present");
+    router.push(getSkipPreflight() ? "/present" : "/preflight");
   };
 
   const beginRename = (script: SavedScript) => {

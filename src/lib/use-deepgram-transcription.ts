@@ -42,6 +42,7 @@ export function useDeepgramTranscription(options: Options = {}) {
     interim: "",
   });
   const [error, setError] = useState<string | null>(null);
+  const [stream, setStream] = useState<MediaStream | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -63,6 +64,7 @@ export function useDeepgramTranscription(options: Options = {}) {
       streamRef.current.getTracks().forEach((t) => t.stop());
     }
     streamRef.current = null;
+    setStream(null);
 
     if (wsRef.current) {
       try {
@@ -93,10 +95,11 @@ export function useDeepgramTranscription(options: Options = {}) {
     setStatus("starting");
 
     // 1. Mic first — iOS Safari rejects getUserMedia if not synchronous-ish to a user gesture.
-    let stream: MediaStream;
+    let mediaStream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = mediaStream;
+      setStream(mediaStream);
     } catch (e) {
       const message =
         e instanceof Error
@@ -151,8 +154,8 @@ export function useDeepgramTranscription(options: Options = {}) {
       setStatus("listening");
       const mimeType = pickMimeType();
       const recorder = mimeType
-        ? new MediaRecorder(stream, { mimeType })
-        : new MediaRecorder(stream);
+        ? new MediaRecorder(mediaStream, { mimeType })
+        : new MediaRecorder(mediaStream);
       recorderRef.current = recorder;
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0 && ws.readyState === WebSocket.OPEN) {
@@ -209,5 +212,5 @@ export function useDeepgramTranscription(options: Options = {}) {
 
   useEffect(() => cleanup, [cleanup]);
 
-  return { status, transcript, error, start, stop };
+  return { status, transcript, error, stream, start, stop };
 }
