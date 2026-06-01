@@ -22,6 +22,7 @@ import {
   setCachedWindowEmbeddings,
 } from "@/lib/embedding-cache";
 import { usePositionTracker } from "@/lib/position-tracker";
+import { readDebugConfigFromWindow } from "@/lib/debug-options";
 
 const TRANSCRIPT_TAIL_WORDS = 15;
 const FUZZY_TRUST_THRESHOLD = 0.2;
@@ -38,6 +39,12 @@ export default function Present() {
   );
   const [indexing, setIndexing] = useState(false);
 
+  // Read /present?debug=1&sigma=...&ema=... once at first render.
+  // The whole object is frozen for the session so the tracker hook gets
+  // a stable options reference.
+  const [debugConfig] = useState(readDebugConfigFromWindow);
+  const debugEnabled = debugConfig.enabled;
+
   const { status, transcript, error, start, stop } = useDeepgramTranscription();
   const {
     status: embedderStatus,
@@ -49,10 +56,13 @@ export default function Present() {
   const {
     position: trackerPosition,
     confidence: trackerConfidence,
+    margin: trackerMargin,
+    consistency: trackerConsistency,
+    matchRate: trackerMatchRate,
     isLocked: trackerLocked,
     observe: trackerObserve,
     reset: trackerReset,
-  } = usePositionTracker();
+  } = usePositionTracker(debugConfig.options);
 
   const currentRef = useRef<HTMLParagraphElement | null>(null);
 
@@ -144,7 +154,6 @@ export default function Present() {
         const tailEmbedding = await embedderEmbed(transcriptTail);
         if (cancelled) return;
         const sem = semanticMatch(semanticIndex!, tailEmbedding);
-        // Pick the higher-scoring path's scores for the tracker.
         if (sem.score > fuzzy.score) {
           trackerObserve({ scores: sem.scores });
           setMatchPath("semantic");
@@ -224,6 +233,9 @@ export default function Present() {
   })();
 
   const currentIndex = trackerPosition;
+  const { options } = debugConfig;
+  const fmt = (n: number) =>
+    Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, "");
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-2xl flex-col gap-8 px-6 py-10">
@@ -309,17 +321,42 @@ export default function Present() {
         })}
       </article>
 
-      {(transcript.finals.length > 0 || transcript.interim) && (
-        <section className="rounded-lg border border-dashed border-border bg-card/50 p-4 text-sm">
-          <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
-            Live transcript · debug
+      {debugEnabled && (
+        <section className="flex flex-col gap-3 rounded-lg border border-dashed border-border bg-card/50 p-4 font-mono text-[11px] leading-relaxed text-muted-foreground">
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            <span className="text-foreground/80">debug</span>
+            <span>σ={fmt(options.sigma)}</span>
+            <span>ema={fmt(options.ema)}</span>
+            <span>Δ={fmt(options.commitDelta)}</span>
+            <span>win={fmt(options.recentWindow)}</span>
+            <span>floor={fmt(options.matchRateFloor)}</span>
+            <span>
+              pause/resume={fmt(options.pauseAt)}/{fmt(options.resumeAt)}
+            </span>
           </div>
-          <p className="leading-relaxed text-muted-foreground">
-            {transcript.finals.join(" ")}{" "}
-            {transcript.interim && (
-              <span className="opacity-60">{transcript.interim}</span>
-            )}
-          </p>
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            <span>conf {Math.round(trackerConfidence * 100)}%</span>
+            <span>margin {trackerMargin.toFixed(3)}</span>
+            <span>consistency {trackerConsistency.toFixed(2)}</span>
+            <span>matchRate {trackerMatchRate.toFixed(2)}</span>
+            <span>
+              {trackerLocked ? "● locked" : "○ live"}
+              {matchPath ? ` · ${matchPath}` : ""}
+            </span>
+          </div>
+          {(transcript.finals.length > 0 || transcript.interim) && (
+            <div>
+              <div className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground/70">
+                transcript
+              </div>
+              <p className="font-sans">
+                {transcript.finals.join(" ")}{" "}
+                {transcript.interim && (
+                  <span className="opacity-60">{transcript.interim}</span>
+                )}
+              </p>
+            </div>
+          )}
         </section>
       )}
     </main>
