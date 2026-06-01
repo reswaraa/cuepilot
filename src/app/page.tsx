@@ -31,13 +31,22 @@ export default function Home() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [rawText, setRawText] = useState("");
-  const [sentences, setSentences] = useState<string[]>([]);
+  // null = no manual edits yet → render from autoSentences.
+  // string[] = user has edited chunks → render this verbatim.
+  const [overrideSentences, setOverrideSentences] = useState<string[] | null>(
+    null,
+  );
   const [mode, setMode] = useState<ScriptMode>("script");
-  const [manualOverride, setManualOverride] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
 
   const detectedMode = useMemo(() => detectScriptMode(rawText), [rawText]);
+  const autoSentences = useMemo(
+    () => parseScript(rawText, mode),
+    [rawText, mode],
+  );
+  const sentences = overrideSentences ?? autoSentences;
+  const manualOverride = overrideSentences !== null;
 
   // Initial library load.
   useEffect(() => {
@@ -54,18 +63,6 @@ export default function Home() {
     };
   }, []);
 
-  // Re-parse on raw text / mode change, unless user is editing chunks.
-  useEffect(() => {
-    if (manualOverride) return;
-    setSentences(parseScript(rawText, mode));
-  }, [rawText, mode, manualOverride]);
-
-  // Adopt the detected mode (Bullets is locked out in v0).
-  useEffect(() => {
-    if (detectedMode === "bullets") return;
-    setMode(detectedMode);
-  }, [detectedMode]);
-
   const trimmedSentences = sentences.map((s) => s.trim()).filter(Boolean);
   const canContinue = trimmedSentences.length > 0;
 
@@ -73,8 +70,7 @@ export default function Home() {
     setEditingId(script.id);
     setTitle(script.title);
     setRawText(script.rawText);
-    setSentences(script.sentences);
-    setManualOverride(true);
+    setOverrideSentences(script.sentences);
     setMode(detectScriptMode(script.rawText));
   };
 
@@ -82,23 +78,21 @@ export default function Home() {
     setEditingId(null);
     setTitle("");
     setRawText("");
-    setSentences([]);
-    setManualOverride(false);
+    setOverrideSentences(null);
     setMode("script");
   };
 
   const handleSentenceEdit = (idx: number, value: string) => {
-    setManualOverride(true);
-    setSentences((prev) => {
-      const next = [...prev];
+    setOverrideSentences((prev) => {
+      const base = prev ?? autoSentences;
+      const next = [...base];
       next[idx] = value;
       return next;
     });
   };
 
   const handleReparse = () => {
-    setManualOverride(false);
-    setSentences(parseScript(rawText, mode));
+    setOverrideSentences(null);
   };
 
   const handleContinue = async () => {
@@ -277,7 +271,7 @@ export default function Home() {
           value={rawText}
           onChange={(e) => {
             setRawText(e.target.value);
-            setManualOverride(false);
+            setOverrideSentences(null);
           }}
           placeholder="Paste your script here…"
           className="min-h-[26dvh] resize-none rounded-lg border border-border bg-card p-4 text-base leading-relaxed outline-none placeholder:text-muted-foreground/60 focus:ring-2 focus:ring-ring"

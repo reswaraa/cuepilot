@@ -91,8 +91,10 @@ export default function Present() {
   const [chromeVisible, setChromeVisible] = useState(true);
   const [interactionTick, setInteractionTick] = useState(0);
 
-  // Font size; hydrated from localStorage after mount.
-  const [fontSize, setFontSize] = useState<FontSize>(DEFAULT_FONT_SIZE);
+  // Font size; the lazy initializer reads localStorage on the first
+  // render. The component returns null until `hydrated` flips, so any
+  // server/client divergence isn't visible in the rendered HTML.
+  const [fontSize, setFontSize] = useState<FontSize>(readStoredFontSize);
 
   const currentRef = useRef<HTMLParagraphElement | null>(null);
 
@@ -109,10 +111,6 @@ export default function Present() {
       window.localStorage.setItem(FONT_SIZE_KEY, String(next));
     }
   };
-
-  useEffect(() => {
-    setFontSize(readStoredFontSize());
-  }, []);
 
   const anchorToSentence = (idx: number) => {
     trackerSetPosition(idx);
@@ -136,6 +134,9 @@ export default function Present() {
       router.replace("/");
       return;
     }
+    // One-shot hydration from sessionStorage; the component returns null
+    // until `hydrated` flips, so no SSR/CSR mismatch.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setScript(stored);
     setHydrated(true);
   }, [router]);
@@ -144,13 +145,11 @@ export default function Present() {
     embedderPreload();
   }, [embedderPreload]);
 
-  // Reset the tracker each time a new session starts.
-  useEffect(() => {
-    if (status === "starting") {
-      trackerReset();
-      setMatchPath(null);
-    }
-  }, [status, trackerReset]);
+  const handleStart = () => {
+    trackerReset();
+    setMatchPath(null);
+    start();
+  };
 
   // Build the semantic index once both the script and the model are ready.
   // Cache hit → instant; cache miss → embed once, persist for next visit.
@@ -256,17 +255,17 @@ export default function Present() {
   }, [trackerPosition, trackerLocked]);
 
   // Auto-hide chrome 3s after the last interaction, but only while
-  // actively listening. Anything else (idle, error, model loading)
-  // keeps chrome on screen so the user can see and act on the state.
+  // actively listening. Anything else (idle, error, model loading) shows
+  // chrome unconditionally via the derived `showChrome` below.
   useEffect(() => {
-    if (status !== "listening") {
-      setChromeVisible(true);
-      return;
-    }
+    if (status !== "listening") return;
     if (!chromeVisible) return;
     const id = setTimeout(() => setChromeVisible(false), 3000);
     return () => clearTimeout(id);
   }, [status, chromeVisible, interactionTick]);
+
+  // Effective visibility: while not actively listening, force visible.
+  const showChrome = status !== "listening" || chromeVisible;
 
   if (!hydrated || !script) return null;
 
@@ -325,14 +324,14 @@ export default function Present() {
       <div
         className={cn(
           "pointer-events-none fixed inset-x-0 top-0 z-20 transition-opacity duration-300 ease-out motion-reduce:transition-none",
-          chromeVisible ? "opacity-100" : "opacity-0",
+          showChrome ? "opacity-100" : "opacity-0",
         )}
-        aria-hidden={!chromeVisible}
+        aria-hidden={!showChrome}
       >
         <div
           className={cn(
             "mx-auto flex max-w-2xl items-center justify-between px-6 py-3 backdrop-blur-md",
-            chromeVisible ? "bg-background/70 pointer-events-auto" : "",
+            showChrome ? "bg-background/70 pointer-events-auto" : "",
           )}
         >
           <h1 className="text-base font-medium tracking-tight">
@@ -414,14 +413,14 @@ export default function Present() {
       <div
         className={cn(
           "pointer-events-none fixed inset-x-0 bottom-0 z-20 transition-opacity duration-300 ease-out motion-reduce:transition-none",
-          chromeVisible ? "opacity-100" : "opacity-0",
+          showChrome ? "opacity-100" : "opacity-0",
         )}
-        aria-hidden={!chromeVisible}
+        aria-hidden={!showChrome}
       >
         <div
           className={cn(
             "mx-auto max-w-2xl px-6 pb-6 pt-3",
-            chromeVisible ? "pointer-events-auto" : "",
+            showChrome ? "pointer-events-auto" : "",
           )}
         >
           <div className="flex flex-col gap-2">
@@ -451,7 +450,7 @@ export default function Present() {
                 </span>
               </div>
               <Button
-                onClick={isListening ? stop : start}
+                onClick={isListening ? stop : handleStart}
                 disabled={isBusy}
                 variant={isListening ? "secondary" : "default"}
                 size="sm"

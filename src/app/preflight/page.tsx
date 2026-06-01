@@ -25,6 +25,11 @@ export default function Preflight() {
       router.replace('/');
       return;
     }
+    // One-shot hydration from sessionStorage + localStorage. The page renders
+    // null until `hydrated` flips, so there's no SSR/CSR mismatch — this is
+    // the canonical "load from browser-only store on mount" pattern that the
+    // rule flags as a false positive.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setScript(stored);
     setSkipNextTime(getSkipPreflight());
     setHydrated(true);

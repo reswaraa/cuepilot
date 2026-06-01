@@ -48,7 +48,9 @@ export function useDeepgramTranscription(options: Options = {}) {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const onTranscriptRef = useRef(options.onTranscript);
-  onTranscriptRef.current = options.onTranscript;
+  useEffect(() => {
+    onTranscriptRef.current = options.onTranscript;
+  });
 
   const cleanup = useCallback(() => {
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
