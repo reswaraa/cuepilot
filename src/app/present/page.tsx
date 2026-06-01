@@ -72,7 +72,17 @@ export default function Present() {
   const [pulseIndex, setPulseIndex] = useState<number | null>(null);
   const pulseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Auto-hiding chrome: visible by default; while listening, hides after
+  // 3s of no interaction. Any tap/keystroke re-reveals and resets the timer.
+  const [chromeVisible, setChromeVisible] = useState(true);
+  const [interactionTick, setInteractionTick] = useState(0);
+
   const currentRef = useRef<HTMLParagraphElement | null>(null);
+
+  const revealChrome = () => {
+    setChromeVisible(true);
+    setInteractionTick((t) => t + 1);
+  };
 
   const anchorToSentence = (idx: number) => {
     trackerSetPosition(idx);
@@ -215,6 +225,19 @@ export default function Present() {
     scrollSentenceIntoAnchor(node);
   }, [trackerPosition, trackerLocked]);
 
+  // Auto-hide chrome 3s after the last interaction, but only while
+  // actively listening. Anything else (idle, error, model loading)
+  // keeps chrome on screen so the user can see and act on the state.
+  useEffect(() => {
+    if (status !== "listening") {
+      setChromeVisible(true);
+      return;
+    }
+    if (!chromeVisible) return;
+    const id = setTimeout(() => setChromeVisible(false), 3000);
+    return () => clearTimeout(id);
+  }, [status, chromeVisible, interactionTick]);
+
   if (!hydrated || !script) return null;
 
   const isListening = status === "listening";
@@ -264,65 +287,40 @@ export default function Present() {
     Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, "");
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-2xl flex-col gap-8 px-6 py-10">
-      <header className="flex items-center justify-between">
-        <h1 className="text-lg font-medium tracking-tight">
-          cue<span className="text-primary">pilot</span>
-        </h1>
-        <button
-          onClick={() => {
-            stop();
-            router.push("/");
-          }}
-          className="text-sm text-muted-foreground transition hover:text-foreground"
-        >
-          ← Edit script
-        </button>
-      </header>
-
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3">
-          <div className="flex items-center gap-2.5 text-sm">
-            <span
-              className={cn(
-                "h-2 w-2 rounded-full",
-                isListening
-                  ? trackerLocked
-                    ? "animate-pulse bg-muted-foreground/60"
-                    : "animate-pulse bg-primary"
-                  : status === "error"
-                    ? "bg-destructive"
-                    : "bg-muted-foreground/40",
-              )}
-              aria-hidden
-            />
-            <span
-              className={
-                status === "error"
-                  ? "text-destructive"
-                  : "text-muted-foreground"
-              }
-            >
-              {statusLabel}
-            </span>
-          </div>
-          <Button
-            onClick={isListening ? stop : start}
-            disabled={isBusy}
-            variant={isListening ? "secondary" : "default"}
-            size="sm"
-          >
-            {isListening ? "Stop" : "Start"}
-          </Button>
-        </div>
-        {engineCaption && (
-          <div className="px-1 text-[11px] text-muted-foreground/70">
-            {engineCaption}
-          </div>
+    <main
+      onClick={revealChrome}
+      onKeyDown={revealChrome}
+      className="relative mx-auto min-h-dvh max-w-2xl px-6"
+    >
+      <div
+        className={cn(
+          "pointer-events-none fixed inset-x-0 top-0 z-20 transition-opacity duration-300 ease-out motion-reduce:transition-none",
+          chromeVisible ? "opacity-100" : "opacity-0",
         )}
+        aria-hidden={!chromeVisible}
+      >
+        <div
+          className={cn(
+            "mx-auto flex max-w-2xl items-center justify-between px-6 py-3 backdrop-blur-md",
+            chromeVisible ? "bg-background/70 pointer-events-auto" : "",
+          )}
+        >
+          <h1 className="text-base font-medium tracking-tight">
+            cue<span className="text-primary">pilot</span>
+          </h1>
+          <button
+            onClick={() => {
+              stop();
+              router.push("/");
+            }}
+            className="text-sm text-muted-foreground transition hover:text-foreground"
+          >
+            ← Edit script
+          </button>
+        </div>
       </div>
 
-      <article className="flex min-h-[60dvh] flex-col gap-5 pb-[40dvh] pt-[20dvh]">
+      <article className="flex min-h-[60dvh] flex-col gap-5 pb-[40dvh] pt-[24dvh]">
         {script.sentences.map((sentence, i) => {
           const isCurrent = i === currentIndex;
           const isPast = currentIndex !== null && i < currentIndex;
@@ -364,8 +362,65 @@ export default function Present() {
         })}
       </article>
 
+      <div
+        className={cn(
+          "pointer-events-none fixed inset-x-0 bottom-0 z-20 transition-opacity duration-300 ease-out motion-reduce:transition-none",
+          chromeVisible ? "opacity-100" : "opacity-0",
+        )}
+        aria-hidden={!chromeVisible}
+      >
+        <div
+          className={cn(
+            "mx-auto max-w-2xl px-6 pb-6 pt-3",
+            chromeVisible ? "pointer-events-auto" : "",
+          )}
+        >
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between rounded-xl border border-border bg-card/85 px-4 py-3 shadow-lg backdrop-blur-md">
+              <div className="flex items-center gap-2.5 text-sm">
+                <span
+                  className={cn(
+                    "h-2 w-2 rounded-full",
+                    isListening
+                      ? trackerLocked
+                        ? "animate-pulse bg-muted-foreground/60"
+                        : "animate-pulse bg-primary"
+                      : status === "error"
+                        ? "bg-destructive"
+                        : "bg-muted-foreground/40",
+                  )}
+                  aria-hidden
+                />
+                <span
+                  className={
+                    status === "error"
+                      ? "text-destructive"
+                      : "text-muted-foreground"
+                  }
+                >
+                  {statusLabel}
+                </span>
+              </div>
+              <Button
+                onClick={isListening ? stop : start}
+                disabled={isBusy}
+                variant={isListening ? "secondary" : "default"}
+                size="sm"
+              >
+                {isListening ? "Stop" : "Start"}
+              </Button>
+            </div>
+            {engineCaption && (
+              <div className="px-1 text-[11px] text-muted-foreground/70">
+                {engineCaption}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
       {debugEnabled && (
-        <section className="flex flex-col gap-3 rounded-lg border border-dashed border-border bg-card/50 p-4 font-mono text-[11px] leading-relaxed text-muted-foreground">
+        <section className="mb-32 flex flex-col gap-3 rounded-lg border border-dashed border-border bg-card/50 p-4 font-mono text-[11px] leading-relaxed text-muted-foreground">
           <div className="flex flex-wrap gap-x-4 gap-y-1">
             <span className="text-foreground/80">debug</span>
             <span>σ={fmt(options.sigma)}</span>
