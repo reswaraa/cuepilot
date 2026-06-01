@@ -31,7 +31,21 @@ import {
 const TRANSCRIPT_TAIL_WORDS = 15;
 const FUZZY_TRUST_THRESHOLD = 0.2;
 
+const FONT_SIZES = [24, 28, 32, 40] as const;
+type FontSize = (typeof FONT_SIZES)[number];
+const DEFAULT_FONT_SIZE: FontSize = 28;
+const FONT_SIZE_KEY = "cuepilot.fontSize";
+
 type MatchPath = "fuzzy" | "semantic";
+
+function readStoredFontSize(): FontSize {
+  if (typeof window === "undefined") return DEFAULT_FONT_SIZE;
+  const stored = window.localStorage.getItem(FONT_SIZE_KEY);
+  const n = stored ? parseInt(stored, 10) : NaN;
+  return (FONT_SIZES as readonly number[]).includes(n)
+    ? (n as FontSize)
+    : DEFAULT_FONT_SIZE;
+}
 
 export default function Present() {
   const router = useRouter();
@@ -77,12 +91,28 @@ export default function Present() {
   const [chromeVisible, setChromeVisible] = useState(true);
   const [interactionTick, setInteractionTick] = useState(0);
 
+  // Font size; hydrated from localStorage after mount.
+  const [fontSize, setFontSize] = useState<FontSize>(DEFAULT_FONT_SIZE);
+
   const currentRef = useRef<HTMLParagraphElement | null>(null);
 
   const revealChrome = () => {
     setChromeVisible(true);
     setInteractionTick((t) => t + 1);
   };
+
+  const cycleFontSize = () => {
+    const next =
+      FONT_SIZES[(FONT_SIZES.indexOf(fontSize) + 1) % FONT_SIZES.length];
+    setFontSize(next);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(FONT_SIZE_KEY, String(next));
+    }
+  };
+
+  useEffect(() => {
+    setFontSize(readStoredFontSize());
+  }, []);
 
   const anchorToSentence = (idx: number) => {
     trackerSetPosition(idx);
@@ -308,15 +338,30 @@ export default function Present() {
           <h1 className="text-base font-medium tracking-tight">
             cue<span className="text-primary">pilot</span>
           </h1>
-          <button
-            onClick={() => {
-              stop();
-              router.push("/");
-            }}
-            className="text-sm text-muted-foreground transition hover:text-foreground"
-          >
-            ← Edit script
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={cycleFontSize}
+              aria-label={`Font size — currently ${fontSize}px. Tap to change.`}
+              className="flex items-center gap-1 rounded-md px-2 py-1 text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground"
+            >
+              <span aria-hidden>Aa</span>
+              <span
+                aria-hidden
+                className="text-[10px] tabular-nums opacity-60"
+              >
+                {fontSize}
+              </span>
+            </button>
+            <button
+              onClick={() => {
+                stop();
+                router.push("/");
+              }}
+              className="rounded-md px-2 py-1 text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground"
+            >
+              ← Edit
+            </button>
+          </div>
         </div>
       </div>
 
@@ -335,7 +380,11 @@ export default function Present() {
             <p
               key={i}
               ref={isCurrent ? currentRef : null}
-              style={{ opacity }}
+              style={{
+                opacity,
+                fontSize: `${fontSize}px`,
+                lineHeight: 1.45,
+              }}
               onClick={() => anchorToSentence(i)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
@@ -347,7 +396,7 @@ export default function Present() {
               tabIndex={0}
               aria-label={`Anchor at sentence ${i + 1}`}
               className={cn(
-                "-ml-4 cursor-pointer rounded-r-md border-l-2 pl-4 text-2xl leading-relaxed text-foreground transition-[opacity,color,border-color] duration-300 ease-out outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
+                "-ml-4 cursor-pointer rounded-r-md border-l-2 pl-4 text-foreground transition-[opacity,color,border-color] duration-300 ease-out outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
                 isCurrent
                   ? trackerLocked
                     ? "border-muted-foreground/40"
