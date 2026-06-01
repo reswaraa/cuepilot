@@ -23,6 +23,10 @@ import {
 } from "@/lib/embedding-cache";
 import { usePositionTracker } from "@/lib/position-tracker";
 import { readDebugConfigFromWindow } from "@/lib/debug-options";
+import {
+  scrollSentenceIntoAnchor,
+  sentenceOpacity,
+} from "@/lib/teleprompter-view";
 
 const TRANSCRIPT_TAIL_WORDS = 15;
 const FUZZY_TRUST_THRESHOLD = 0.2;
@@ -181,12 +185,14 @@ export default function Present() {
   ]);
 
   // Auto-scroll on position change — only while not locked by low confidence.
+  // Current sentence is anchored ~40% from the top of the viewport so the
+  // next line(s) stay in the natural read-ahead zone.
   useEffect(() => {
     if (trackerPosition === null) return;
     if (trackerLocked) return;
     const node = currentRef.current;
     if (!node) return;
-    node.scrollIntoView({ behavior: "smooth", block: "center" });
+    scrollSentenceIntoAnchor(node);
   }, [trackerPosition, trackerLocked]);
 
   if (!hydrated || !script) return null;
@@ -296,23 +302,28 @@ export default function Present() {
         )}
       </div>
 
-      <article className="flex flex-col gap-5">
+      <article className="flex min-h-[60dvh] flex-col gap-5 pb-[40dvh] pt-[20dvh]">
         {script.sentences.map((sentence, i) => {
           const isCurrent = i === currentIndex;
           const isPast = currentIndex !== null && i < currentIndex;
+          const distance =
+            currentIndex === null ? 0 : Math.abs(i - currentIndex);
+          const opacity =
+            currentIndex === null
+              ? 1
+              : sentenceOpacity(distance, isPast, trackerLocked);
           return (
             <p
               key={i}
               ref={isCurrent ? currentRef : null}
+              style={{ opacity }}
               className={cn(
-                "scroll-mt-32 border-l-2 pl-4 -ml-4 text-2xl leading-relaxed transition-colors duration-300",
+                "border-l-2 pl-4 -ml-4 text-2xl leading-relaxed text-foreground transition-[opacity,color,border-color] duration-300 ease-out motion-reduce:transition-none",
                 isCurrent
                   ? trackerLocked
-                    ? "border-muted-foreground/40 text-foreground/70"
-                    : "border-primary text-foreground"
-                  : isPast
-                    ? "border-transparent text-muted-foreground/35"
-                    : "border-transparent text-muted-foreground",
+                    ? "border-muted-foreground/40"
+                    : "border-primary"
+                  : "border-transparent",
               )}
             >
               {sentence}
