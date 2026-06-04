@@ -24,7 +24,7 @@ The pipeline is mostly client-side. Script storage, embeddings, model weights, a
 
 ```bash
 npm install
-cp .env.example .env.local        # fill in DEEPGRAM_API_KEY and ACCESS_PASSWORD
+cp .env.example .env.local # fill in DEEPGRAM_API_KEY and ACCESS_PASSWORD
 npm run dev
 ```
 
@@ -32,4 +32,4 @@ Then open `http://localhost:3000`, log in with whatever you set as `ACCESS_PASSW
 
 A few env vars are optional and silently disable their integration when blank: `NEXT_PUBLIC_PLAUSIBLE_DOMAIN`, `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN`. The Deepgram key and the access password are the only ones you actually need.
 
-Mic capture requires HTTPS or localhost. If you're testing on a real device against a dev box, use a tunnel that gives you HTTPS (`vercel dev`, `cloudflared`, etc.). Desktop Chrome will lie to you about iOS Safari behaviour, so verify on an actual iPhone before assuming anything works.
+Mic capture requires HTTPS or localhost. If you're testing on a real device against a dev box, use a tunnel that gives you HTTPS (`vercel dev`, `cloudflared`, `ngrok`, etc.). Desktop Chrome will lie to you about iOS Safari behaviour, so verify on an actual iPhone before assuming anything works.
